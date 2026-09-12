@@ -112,6 +112,13 @@
     </div>
   </div>
   <p>This page helps you authenticate with GitHub Copilot.</p>
+  <form id="proxy-token-form">
+    <label for="proxy-token">Proxy access token (if PROXY_AUTH_TOKEN is configured)</label>
+    <input id="proxy-token" type="password" autocomplete="off" spellcheck="false">
+    <button type="submit">Use Token</button>
+    <p>The token is kept only for this browser tab. Submit an empty value to forget it.
+      Use HTTPS when connecting to a remote proxy.</p>
+  </form>
 
   <div class="auth-container">
     <div id="status-display" class="status">
@@ -133,7 +140,7 @@
     <div id="verification-code-container" class="hidden">
       <h2>Enter this code on GitHub</h2>
       <div id="verification-code" class="code-display"></div>
-      <p>Go to <a id="verification-link" href="#" target="_blank">GitHub's device verification page</a> and enter this
+      <p>Go to <a id="verification-link" href="#" target="_blank" rel="noopener noreferrer">GitHub's device verification page</a> and enter this
         code.</p>
       <p>Status: <span id="verification-status">Waiting for verification...</span></p>
     </div>
@@ -151,22 +158,58 @@
     <ol>
       <li>Complete the authentication process above</li>
       <li><strong>For Cursor IDE:</strong> Go to Settings > API Keys</li>
-      <li>In the "Override OpenAI Base URL" section, enter: <code id="api-base-url">http://localhost:3000</code></li>
+      <li>In the "Override OpenAI Base URL" section, enter: <code id="api-base-url">http://localhost:3000/openai/v1</code>
+        (legacy/experimental; not equivalent to the Claude Code integration).</li>
       <li><strong>For Claude Code:</strong> Add to <code>.claude/settings.local.json</code>:
-        <pre style="background:#f6f8fa;padding:1rem;border-radius:6px;font-size:12px;">{
+        <pre id="claude-settings" style="background:#f6f8fa;padding:1rem;border-radius:6px;font-size:12px;">{
   "env": {
     "ANTHROPIC_BASE_URL": "http://localhost:3000",
-    "ANTHROPIC_AUTH_TOKEN": "sk-dummy"
+    "ANTHROPIC_AUTH_TOKEN": "sk-dummy",
+    "ANTHROPIC_MODEL": "sonnet"
   }
 }</pre>
       </li>
+      <li>If the proxy has <code>PROXY_AUTH_TOKEN</code> configured, replace <code>sk-dummy</code>
+        in <code>ANTHROPIC_AUTH_TOKEN</code> with that value. Use it as Cursor's API key too.
+        Never put the token in a URL.</li>
       <li>Start using Cursor IDE or Claude Code with GitHub Copilot!</li>
     </ol>
   </div>
 
   <script>
     const apiUrl = window.location.origin;
-    document.getElementById('api-base-url').textContent = apiUrl;
+    document.getElementById('api-base-url').textContent = `${apiUrl}/openai/v1`;
+    document.getElementById('claude-settings').textContent = JSON.stringify({
+      env: {
+        ANTHROPIC_BASE_URL: apiUrl,
+        ANTHROPIC_AUTH_TOKEN: 'sk-dummy',
+        ANTHROPIC_MODEL: 'sonnet'
+      }
+    }, null, 2);
+    let proxyToken = '';
+    try { proxyToken = sessionStorage.getItem('proxy-auth-token') || ''; } catch {}
+    document.getElementById('proxy-token-form').addEventListener('submit', event => {
+      event.preventDefault();
+      const input = document.getElementById('proxy-token');
+      proxyToken = input.value;
+      input.value = '';
+      try {
+        if (proxyToken) sessionStorage.setItem('proxy-auth-token', proxyToken);
+        else sessionStorage.removeItem('proxy-auth-token');
+      } catch {}
+      checkAuthStatus();
+    });
+    async function proxyFetch(url, options = {}) {
+      const headers = new Headers(options.headers);
+      if (proxyToken) headers.set('x-api-key', proxyToken);
+      const response = await fetch(url, { ...options, headers, cache: 'no-store', credentials: 'omit' });
+      if (!response.ok) {
+        throw new Error(response.status === 401
+          ? 'Enter a valid proxy access token above.'
+          : 'The proxy request failed. Please try again.');
+      }
+      return response;
+    }
 
     // Elements
     const statusDisplay = document.getElementById('status-display');
@@ -191,7 +234,7 @@
     // Functions
     async function checkAuthStatus() {
       try {
-        const response = await fetch(`${apiUrl}/auth/status`);
+        const response = await proxyFetch(`${apiUrl}/auth/status`);
         const data = await response.json();
 
         if (data.status === 'authenticated') {
@@ -202,7 +245,7 @@
       } catch (error) {
         console.error('Error checking auth status:', error);
         statusDisplay.className = 'status error';
-        statusDisplay.textContent = 'Error checking authentication status. Please refresh the page.';
+        statusDisplay.textContent = error.message;
       }
     }
 
@@ -211,7 +254,7 @@
         startAuthBtn.disabled = true;
         startAuthBtn.textContent = 'Starting...';
 
-        const response = await fetch(`${apiUrl}/auth/login`, {
+        const response = await proxyFetch(`${apiUrl}/auth/login`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -234,7 +277,7 @@
       } catch (error) {
         console.error('Error starting authentication:', error);
         statusDisplay.className = 'status error';
-        statusDisplay.textContent = 'Error starting authentication. Please try again.';
+        statusDisplay.textContent = error.message;
         startAuthBtn.disabled = false;
         startAuthBtn.textContent = 'Start Authentication';
       }
@@ -260,7 +303,7 @@
         await new Promise(resolve => setTimeout(resolve, 5000));
 
         try {
-          const response = await fetch(`${apiUrl}/auth/check`, {
+          const response = await proxyFetch(`${apiUrl}/auth/check`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
@@ -326,7 +369,7 @@
         logoutBtn.disabled = true;
         logoutBtn.textContent = 'Logging out...';
 
-        await fetch(`${apiUrl}/auth/logout`, {
+        await proxyFetch(`${apiUrl}/auth/logout`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -337,7 +380,7 @@
       } catch (error) {
         console.error('Error logging out:', error);
         statusDisplay.className = 'status error';
-        statusDisplay.textContent = 'Error logging out. Please try again.';
+        statusDisplay.textContent = error.message;
 
         logoutBtn.disabled = false;
         logoutBtn.textContent = 'Logout';

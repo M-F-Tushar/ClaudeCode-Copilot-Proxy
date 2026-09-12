@@ -16,16 +16,26 @@ export function errorHandler(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   next: NextFunction
 ): void {
-  const status = err.status || 500;
-  const message = err.message || 'Internal Server Error';
-  const code = err.code || 'INTERNAL_ERROR';
-  
-  // Log error details
-  logger.error(`${status} - ${message} - ${req.originalUrl} - ${req.method} - ${req.ip}`, {
-    error: err.stack,
-    body: req.body,
-    params: req.params,
-  });
+  const status = Number.isInteger(err.status) && err.status! >= 400 && err.status! <= 599
+    ? err.status! : 500;
+  const errors: Record<number, [string, string]> = {
+    400: ['Bad Request', 'BAD_REQUEST'],
+    401: ['Authentication required', 'UNAUTHORIZED'],
+    403: ['Forbidden', 'FORBIDDEN'],
+    404: ['Not Found', 'NOT_FOUND'],
+    413: ['Request body too large', 'PAYLOAD_TOO_LARGE'],
+    429: ['Too Many Requests', 'RATE_LIMITED'],
+    502: ['Upstream request failed', 'BAD_GATEWAY'],
+    503: ['Service Unavailable', 'SERVICE_UNAVAILABLE'],
+    504: ['Upstream request timed out', 'GATEWAY_TIMEOUT'],
+  };
+  const [message, code] = errors[status] ?? ['Internal Server Error', 'INTERNAL_ERROR'];
+  // Error messages and stacks can contain upstream bodies, credentials, or JSON parse input.
+  logger.error(`${status} - ${req.method} - Request failed`);
+  if (res.headersSent) {
+    res.destroy();
+    return;
+  }
 
   // Send response to client
   res.status(status).json({

@@ -131,6 +131,13 @@
     </div>
   </div>
   
+  <form id="proxy-token-form">
+    <label for="proxy-token">Proxy access token (if PROXY_AUTH_TOKEN is configured)</label>
+    <input id="proxy-token" type="password" autocomplete="off" spellcheck="false">
+    <button type="submit">Use Token</button>
+    <p>Kept only for this browser tab. Submit an empty value to forget it. Use HTTPS for remote access.</p>
+  </form>
+
   <div id="auth-warning" class="auth-warning hidden">
     <strong>Authentication Required</strong>
     <p>You need to authenticate to view usage metrics. <a href="/auth.html">Go to Authentication Page</a></p>
@@ -188,6 +195,24 @@
   
   <script>
     const apiUrl = window.location.origin;
+    let proxyToken = '';
+    try { proxyToken = sessionStorage.getItem('proxy-auth-token') || ''; } catch {}
+    document.getElementById('proxy-token-form').addEventListener('submit', event => {
+      event.preventDefault();
+      const input = document.getElementById('proxy-token');
+      proxyToken = input.value;
+      input.value = '';
+      try {
+        if (proxyToken) sessionStorage.setItem('proxy-auth-token', proxyToken);
+        else sessionStorage.removeItem('proxy-auth-token');
+      } catch {}
+      fetchData();
+    });
+    function proxyFetch(url, options = {}) {
+      const headers = new Headers(options.headers);
+      if (proxyToken) headers.set('x-api-key', proxyToken);
+      return fetch(url, { ...options, headers, cache: 'no-store', credentials: 'omit' });
+    }
     
     // Elements
     const authWarning = document.getElementById('auth-warning');
@@ -216,7 +241,7 @@
         errorContainer.classList.add('hidden');
         
         // Fetch summary data
-        const summaryResponse = await fetch(`${apiUrl}/usage/summary`);
+        const summaryResponse = await proxyFetch(`${apiUrl}/usage/summary`);
         if (summaryResponse.status === 401) {
           showAuthWarning();
           return;
@@ -227,10 +252,11 @@
         }
         
         const summary = await summaryResponse.json();
+        dashboardContainer.classList.remove('hidden');
         updateDashboard(summary);
         
         // Fetch session details
-        const detailsResponse = await fetch(`${apiUrl}/usage/details`);
+        const detailsResponse = await proxyFetch(`${apiUrl}/usage/details`);
         if (!detailsResponse.ok) {
           throw new Error(`Failed to fetch details: ${detailsResponse.status} ${detailsResponse.statusText}`);
         }
@@ -261,25 +287,25 @@
       
       sessions.forEach(session => {
         const row = document.createElement('tr');
-        row.innerHTML = `
-          <td>${session.sessionId}</td>
-          <td>${session.requestCount.toLocaleString()}</td>
-          <td>${session.tokenCount.toLocaleString()}</td>
-          <td>${formatDateTime(session.lastRequestTime)}</td>
-          <td>${session.duration}</td>
-          <td>
-            <button class="secondary reset-session-btn" data-session="${session.sessionId}">Reset</button>
-          </td>
-        `;
-        sessionsTableBody.appendChild(row);
-      });
-      
-      // Add event listeners to reset buttons
-      document.querySelectorAll('.reset-session-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const sessionId = btn.getAttribute('data-session');
-          resetSession(sessionId);
+        [
+          session.sessionId,
+          session.requestCount.toLocaleString(),
+          session.tokenCount.toLocaleString(),
+          formatDateTime(session.lastRequestTime),
+          session.duration,
+        ].forEach(value => {
+          const cell = document.createElement('td');
+          cell.textContent = value;
+          row.appendChild(cell);
         });
+        const actionCell = document.createElement('td');
+        const resetButton = document.createElement('button');
+        resetButton.className = 'secondary';
+        resetButton.textContent = 'Reset';
+        resetButton.addEventListener('click', () => resetSession(session.sessionId));
+        actionCell.appendChild(resetButton);
+        row.appendChild(actionCell);
+        sessionsTableBody.appendChild(row);
       });
     }
     
@@ -290,7 +316,7 @@
     
     async function resetSession(sessionId) {
       try {
-        const response = await fetch(`${apiUrl}/usage/reset/${sessionId}`, {
+        const response = await proxyFetch(`${apiUrl}/usage/reset/${encodeURIComponent(sessionId)}`, {
           method: 'POST'
         });
         
@@ -310,7 +336,7 @@
       }
       
       try {
-        const response = await fetch(`${apiUrl}/usage/reset-all`, {
+        const response = await proxyFetch(`${apiUrl}/usage/reset-all`, {
           method: 'POST'
         });
         

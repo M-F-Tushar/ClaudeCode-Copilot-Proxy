@@ -5,7 +5,7 @@
  * Usage: claudecode-copilot-proxy [start|--help|--version]
  */
 
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync } from 'fs';
 
@@ -55,5 +55,5 @@ Documentation: ${packageJson.homepage}
 if (command === 'start' || !command.startsWith('-')) {
   // Import and start the server
   const serverPath = join(__dirname, '..', 'dist', 'index.js');
-  await import(serverPath);
+  await import(pathToFileURL(serverPath).href);
 }

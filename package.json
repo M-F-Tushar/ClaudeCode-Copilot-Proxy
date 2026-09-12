@@ -1,7 +1,7 @@
 {
   "name": "claudecode-copilot-proxy",
   "version": "0.1.0",
-  "description": "Proxy server that lets Claude Code and Cursor IDE use GitHub Copilot APIs",
+  "description": "Anthropic-compatible proxy that lets Claude Code (and Cursor IDE) run on a GitHub Copilot subscription",
   "main": "dist/index.js",
   "bin": {
     "claudecode-copilot-proxy": "./bin/claudecode-copilot-proxy.js"
@@ -14,10 +14,12 @@
     "build": "tsc && npm run copy-assets",
     "copy-assets": "node -e \"require('fs').cpSync('src/public', 'dist/public', {recursive: true})\"",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts",
-    "lint": "eslint src/**/*.ts",
+    "dev": "node --loader ts-node/esm/transpile-only src/index.ts",
+    "lint": "eslint src --ext .ts",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
-    "postinstall": "node -e \"try { require('fs').statSync('.git') && require('child_process').execSync('husky', {stdio: 'inherit'}) } catch (e) {}\""
+    "postinstall": "node -e \"try { require('fs').statSync('.git') && require('child_process').execSync('husky', {stdio: 'inherit'}) } catch (e) {}\"",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "typecheck": "tsc --noEmit"
   },
   "repository": {
     "type": "git",
@@ -31,7 +33,11 @@
     "ai",
     "proxy",
     "openai",
-    "api"
+    "api",
+    "claude",
+    "claude-code",
+    "anthropic",
+    "github-copilot"
   ],
   "author": "",
   "license": "MIT",
@@ -40,25 +46,20 @@
   },
   "homepage": "https://github.com/shyamsridhar123/ClaudeCode-Copilot-Proxy#readme",
   "dependencies": {
-    "@microsoft/fetch-event-source": "^2.0.1",
     "@octokit/auth-oauth-device": "^6.0.1",
-    "cors": "^2.8.5",
     "dotenv": "^16.4.1",
-    "express": "^4.18.2",
+    "express": "^4.22.2",
     "node-fetch": "^3.3.2",
-    "uuid": "^9.0.1",
     "winston": "^3.11.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {
     "@commitlint/cli": "^18.6.0",
     "@commitlint/config-conventional": "^18.6.0",
-    "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jest": "^29.5.11",
     "@types/node": "^20.11.6",
     "@types/supertest": "^6.0.2",
-    "@types/uuid": "^9.0.8",
     "@typescript-eslint/eslint-plugin": "^6.19.1",
     "@typescript-eslint/parser": "^6.19.1",
     "eslint": "^8.56.0",
@@ -71,6 +72,11 @@
   },
   "type": "module",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
+  },
+  "overrides": {
+    "express": {
+      "qs": "^6.16.0"
+    }
   }
 }

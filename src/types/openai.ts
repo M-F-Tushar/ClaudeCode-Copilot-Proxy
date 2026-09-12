@@ -21,7 +21,7 @@ export interface OpenAICompletionRequest {
   frequency_penalty?: number;
   logit_bias?: Record<string, number>;
   user?: string;
-  functions?: any[];
+  functions?: Record<string, unknown>[];
   function_call?: 'auto' | 'none' | { name: string };
 }
 

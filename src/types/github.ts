@@ -11,6 +11,12 @@ export interface CopilotToken {
   sku: string;
   telemetry: string;
   tracking_id: string;
+  /** Account-specific API hosts; individual/business/enterprise plans differ. */
+  endpoints?: {
+    api?: string;
+    proxy?: string;
+    telemetry?: string;
+  };
 }
 
 export interface VerificationResponse {
@@ -25,24 +31,4 @@ export interface AuthenticationStatus {
   status: 'authenticated' | 'unauthenticated' | 'pending_verification' | 'error';
   expiresAt?: number;
   error?: string;
-}
-
-export interface CopilotCompletionChoice {
-  text: string;
-  index: number;
-  logprobs: null;
-  finish_reason: string | null;
-}
-
-export interface CopilotCompletionResponse {
-  id: string;
-  object: string;
-  created: number;
-  model: string;
-  choices: CopilotCompletionChoice[];
-  usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-  }
 }

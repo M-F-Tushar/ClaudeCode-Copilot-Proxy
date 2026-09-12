@@ -8,11 +8,21 @@
 // ============================================================================
 
 /**
+ * Prompt-caching marker, preserved by native routing. The chat translator
+ * warns about or rejects it because it cannot preserve cache boundaries.
+ */
+export interface CacheControl {
+  type: 'ephemeral';
+  ttl?: '5m' | '1h';
+}
+
+/**
  * Text content block in a message
  */
 export interface TextBlock {
   type: 'text';
   text: string;
+  cache_control?: CacheControl | null;
 }
 
 /**
@@ -26,6 +36,7 @@ export interface ImageBlock {
     data?: string;  // base64 encoded image data
     url?: string;   // URL to image
   };
+  cache_control?: CacheControl | null;
 }
 
 /**
@@ -36,6 +47,7 @@ export interface ToolUseBlock {
   id: string;
   name: string;
   input: Record<string, unknown>;
+  cache_control?: CacheControl | null;
 }
 
 /**
@@ -44,24 +56,57 @@ export interface ToolUseBlock {
 export interface ToolResultBlock {
   type: 'tool_result';
   tool_use_id: string;
-  content: string | ContentBlock[];
+  content?: string | ContentBlock[];
   is_error?: boolean;
+  cache_control?: CacheControl | null;
+}
+
+/**
+ * Extended thinking block emitted by reasoning models
+ */
+export interface ThinkingBlock {
+  type: 'thinking';
+  thinking: string;
+  signature?: string;
+}
+
+/**
+ * Redacted thinking block
+ */
+export interface RedactedThinkingBlock {
+  type: 'redacted_thinking';
+  data: string;
 }
 
 /**
  * Union type for all content block types
  */
-export type ContentBlock = TextBlock | ImageBlock | ToolUseBlock | ToolResultBlock;
+export type ContentBlock =
+  | TextBlock
+  | ImageBlock
+  | ToolUseBlock
+  | ToolResultBlock
+  | ThinkingBlock
+  | RedactedThinkingBlock;
+
+/**
+ * System prompt: either a plain string or an array of text blocks.
+ * Claude Code sends an array of text blocks (with cache_control markers).
+ */
+export type AnthropicSystemPrompt = string | TextBlock[];
 
 // ============================================================================
 // Message Types
 // ============================================================================
 
 /**
- * A message in the conversation
+ * A message in the conversation.
+ *
+ * `system` is only valid under the `mid-conversation-system-2026-04-07` beta,
+ * which Claude Code uses to append instructions after the initial user turn.
  */
 export interface AnthropicMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string | ContentBlock[];
 }
 
@@ -73,9 +118,28 @@ export interface AnthropicTool {
   description?: string;
   input_schema: {
     type: 'object';
-    properties: Record<string, unknown>;
+    properties?: Record<string, unknown>;
     required?: string[];
+    [key: string]: unknown;
   };
+  cache_control?: CacheControl | null;
+}
+
+/**
+ * How the model should decide to use tools
+ */
+export type AnthropicToolChoice =
+  | { type: 'auto'; disable_parallel_tool_use?: boolean }
+  | { type: 'any'; disable_parallel_tool_use?: boolean }
+  | { type: 'none' }
+  | { type: 'tool'; name: string; disable_parallel_tool_use?: boolean };
+
+/**
+ * Extended thinking configuration
+ */
+export interface AnthropicThinkingConfig {
+  type: 'enabled' | 'disabled' | 'adaptive';
+  budget_tokens?: number;
 }
 
 // ============================================================================
@@ -95,8 +159,8 @@ export interface AnthropicMessageRequest {
   /** Maximum tokens to generate */
   max_tokens: number;
   
-  /** System prompt (optional) */
-  system?: string;
+  /** System prompt (optional) - string or array of text blocks */
+  system?: AnthropicSystemPrompt;
   
   /** Sampling temperature (0-1) */
   temperature?: number;
@@ -117,7 +181,14 @@ export interface AnthropicMessageRequest {
   tools?: AnthropicTool[];
   
   /** How to handle tool use */
-  tool_choice?: 'auto' | 'any' | 'none' | { type: 'tool'; name: string };
+  tool_choice?: AnthropicToolChoice;
+  
+  /** Preserved by native routing; warned/rejected in chat translation. */
+  thinking?: AnthropicThinkingConfig;
+
+  /** Preserved natively; no verified equivalent in the chat translator. */
+  cache_control?: CacheControl;
+  output_config?: Record<string, unknown>;
   
   /** Metadata for the request */
   metadata?: {
@@ -125,9 +196,40 @@ export interface AnthropicMessageRequest {
   };
 }
 
+/**
+ * Request body for POST /v1/messages/count_tokens
+ */
+export interface AnthropicCountTokensRequest {
+  /** Optional for compatibility; the configured default model is used when absent. */
+  model?: string;
+  messages: AnthropicMessage[];
+  system?: AnthropicSystemPrompt;
+  tools?: AnthropicTool[];
+  thinking?: AnthropicThinkingConfig;
+  tool_choice?: AnthropicToolChoice;
+}
+
+/**
+ * Response body for POST /v1/messages/count_tokens
+ */
+export interface AnthropicCountTokensResponse {
+  input_tokens: number;
+}
+
 // ============================================================================
 // Response Types
 // ============================================================================
+
+/**
+ * Reason the model stopped generating
+ */
+export type AnthropicStopReason =
+  | 'end_turn'
+  | 'max_tokens'
+  | 'stop_sequence'
+  | 'tool_use'
+  | 'pause_turn'
+  | 'refusal';
 
 /**
  * Usage statistics for the request
@@ -135,6 +237,8 @@ export interface AnthropicMessageRequest {
 export interface AnthropicUsage {
   input_tokens: number;
   output_tokens: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
 }
 
 /**
@@ -157,7 +261,7 @@ export interface AnthropicMessageResponse {
   model: string;
   
   /** Reason the model stopped generating */
-  stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | null;
+  stop_reason: AnthropicStopReason | null;
   
   /** Stop sequence that was hit, if any */
   stop_sequence: string | null;
@@ -167,7 +271,7 @@ export interface AnthropicMessageResponse {
 }
 
 // ============================================================================
-// Streaming Event Types
+// Chat translator event types; native routing forwards opaque provider frames.
 // ============================================================================
 
 /**
@@ -183,10 +287,7 @@ export interface MessageStartEvent {
     model: string;
     stop_reason: null;
     stop_sequence: null;
-    usage: {
-      input_tokens: number;
-      output_tokens: number;
-    };
+    usage: AnthropicUsage;
   };
 }
 
@@ -196,15 +297,9 @@ export interface MessageStartEvent {
 export interface ContentBlockStartEvent {
   type: 'content_block_start';
   index: number;
-  content_block: {
-    type: 'text';
-    text: '';
-  } | {
-    type: 'tool_use';
-    id: string;
-    name: string;
-    input: Record<string, never>;
-  };
+  content_block:
+    | { type: 'text'; text: string }
+    | { type: 'tool_use'; id: string; name: string; input: Record<string, never> };
 }
 
 /**
@@ -236,10 +331,11 @@ export interface ContentBlockStopEvent {
 export interface MessageDeltaEvent {
   type: 'message_delta';
   delta: {
-    stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use';
+    stop_reason: AnthropicStopReason;
     stop_sequence: string | null;
   };
   usage: {
+    input_tokens?: number;
     output_tokens: number;
   };
 }
@@ -306,17 +402,20 @@ export interface AnthropicError {
  * Model information for /v1/models endpoint
  */
 export interface AnthropicModel {
+  /** Always "model" in the Anthropic API */
+  type: 'model';
   id: string;
-  object: 'model';
-  created: number;
-  owned_by: string;
-  display_name?: string;
+  display_name: string;
+  /** RFC 3339 creation timestamp */
+  created_at: string;
 }
 
 /**
- * Response from /v1/models endpoint
+ * Response from GET /v1/models (Anthropic pagination envelope)
  */
 export interface AnthropicModelList {
-  object: 'list';
   data: AnthropicModel[];
+  has_more: boolean;
+  first_id: string | null;
+  last_id: string | null;
 }

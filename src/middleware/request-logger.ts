@@ -6,10 +6,10 @@ import { logger } from '../utils/logger.js';
  */
 export function requestLogger(req: Request, res: Response, next: NextFunction): void {
   const startTime = Date.now();
-  const { method, url } = req;
+  const { method } = req;
   
   // Log request start
-  logger.debug(`${method} ${url} - Request received`);
+  logger.debug(`${method} - Request received`);
   
   // Log response when finished
   res.on('finish', () => {
@@ -18,11 +18,11 @@ export function requestLogger(req: Request, res: Response, next: NextFunction): 
     
     // Log based on status code
     if (statusCode >= 500) {
-      logger.error(`${method} ${url} - ${statusCode} - ${duration}ms`);
+      logger.error(`${method} - ${statusCode} - ${duration}ms`);
     } else if (statusCode >= 400) {
-      logger.warn(`${method} ${url} - ${statusCode} - ${duration}ms`);
+      logger.warn(`${method} - ${statusCode} - ${duration}ms`);
     } else {
-      logger.info(`${method} ${url} - ${statusCode} - ${duration}ms`);
+      logger.info(`${method} - ${statusCode} - ${duration}ms`);
     }
   });
   

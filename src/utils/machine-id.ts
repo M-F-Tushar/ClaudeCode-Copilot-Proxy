@@ -1,7 +1,8 @@
 import { networkInterfaces } from 'os';
 import crypto from 'crypto';
-import { v4 as uuidv4 } from 'uuid';
 import { logger } from './logger.js';
+
+let cachedMachineId: string | undefined;
 
 /**
  * Generate a deterministic machine ID based on network MAC address.
@@ -10,6 +11,9 @@ import { logger } from './logger.js';
  * @returns {string} A SHA-256 hash of the MAC address or a UUID
  */
 export function getMachineId(): string {
+  if (cachedMachineId) {
+    return cachedMachineId;
+  }
   try {
     const interfaces = networkInterfaces();
     const invalidMacAddresses = new Set(['00:00:00:00:00:00', 'ff:ff:ff:ff:ff:ff']);
@@ -21,7 +25,8 @@ export function getMachineId(): string {
         for (const { mac } of networkInterface) {
           if (mac && !invalidMacAddresses.has(mac)) {
             // Use MAC address as a seed for a deterministic machine ID
-            return crypto.createHash('sha256').update(mac, 'utf8').digest('hex');
+            cachedMachineId = crypto.createHash('sha256').update(mac, 'utf8').digest('hex');
+            return cachedMachineId;
           }
         }
       }
@@ -29,9 +34,11 @@ export function getMachineId(): string {
     
     // No valid MAC address found, fall back to UUID
     logger.warn('No valid MAC address found for machine ID, using UUID instead');
-    return uuidv4();
+    cachedMachineId = crypto.randomUUID();
+    return cachedMachineId;
   } catch (error) {
     logger.error('Error generating machine ID:', error);
-    return uuidv4();
+    cachedMachineId = crypto.randomUUID();
+    return cachedMachineId;
   }
 }
